@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.whl
+pip-wheel-metadata/
+share/python-wheels/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# PyInstaller
+*.spec
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
+
+# Temp files
+tmp/
+temp/

@@ -1,0 +1,17 @@
+# Thư viện cốt lõi
+PyQt5>=5.15.0
+PyQt5-Qt5>=5.15.0
+PyQt5-sip>=12.11.0
+
+# Database (tích hợp sẵn trong Python, không cần cài)
+# sqlite3 - built-in
+
+# Xuất PDF
+reportlab>=4.0.0
+
+# Xuất Excel
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# Đóng gói thành EXE (tùy chọn)
+pyinstaller>=6.0.0
