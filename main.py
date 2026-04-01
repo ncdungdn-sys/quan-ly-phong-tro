@@ -58,6 +58,35 @@ class RoomManagementApp(QMainWindow):
         central_widget.setLayout(main_layout)
         
         self.update_dashboard()
+        self.load_rooms_table()
+        self.load_residents_table()
+    
+    def load_rooms_table(self):
+        rooms = self.db.get_all_rooms()
+        all_residents = self.db.get_all_residents()
+        residents_by_room = {}
+        for r in all_residents:
+            residents_by_room.setdefault(r['room_id'], []).append(r['name'])
+        self.rooms_table.setRowCount(len(rooms))
+        for row, room in enumerate(rooms):
+            self.rooms_table.setItem(row, 0, QTableWidgetItem(room['name']))
+            self.rooms_table.setItem(row, 1, QTableWidgetItem(f"{room['price']:,.0f}"))
+            status = "Trống" if room['status'] == 'empty' else "Có người"
+            self.rooms_table.setItem(row, 2, QTableWidgetItem(status))
+            resident_names = ", ".join(residents_by_room.get(room['id'], []))
+            self.rooms_table.setItem(row, 3, QTableWidgetItem(resident_names))
+    
+    def load_residents_table(self):
+        residents = self.db.get_all_residents()
+        self.residents_table.setRowCount(len(residents))
+        for row, resident in enumerate(residents):
+            self.residents_table.setItem(row, 0, QTableWidgetItem(str(resident['id'])))
+            self.residents_table.setItem(row, 1, QTableWidgetItem(resident['name']))
+            self.residents_table.setItem(row, 2, QTableWidgetItem(str(resident['age'])))
+            self.residents_table.setItem(row, 3, QTableWidgetItem(resident['cccd'] or ""))
+            self.residents_table.setItem(row, 4, QTableWidgetItem(resident['phone'] or ""))
+            self.residents_table.setItem(row, 5, QTableWidgetItem(resident['room_name'] or ""))
+            self.residents_table.setItem(row, 6, QTableWidgetItem(resident['check_in_date'] or ""))
     
     def create_residents_tab(self):
         widget = QWidget()
@@ -237,6 +266,8 @@ class RoomManagementApp(QMainWindow):
             self.db.add_resident(name, age, cccd, phone, room_id, date.toString("yyyy-MM-dd"))
             QMessageBox.information(self, "Thành công", "Cư dân đã được thêm!")
             self.update_dashboard()
+            self.load_residents_table()
+            self.load_rooms_table()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", str(e))
     
@@ -266,6 +297,7 @@ class RoomManagementApp(QMainWindow):
             self.db.add_room(name, price)
             QMessageBox.information(self, "Thành công", "Phòng đã được thêm!")
             self.update_dashboard()
+            self.load_rooms_table()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", str(e))
     
