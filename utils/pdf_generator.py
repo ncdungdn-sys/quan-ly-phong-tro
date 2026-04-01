@@ -233,12 +233,9 @@ def generate_thermal_bill(bill_data, residents, output_path=None):
     right_margin = thermal_width - 3 * mm
     content_width = thermal_width - 6 * mm
 
-    def draw_line(text, x=left_margin, size=10, bold=False):
+    def draw_line(text, x=left_margin, size=10):
         nonlocal y
-        if bold:
-            c.setFont(font_name, size)
-        else:
-            c.setFont(font_name, size)
+        c.setFont(font_name, size)
         c.drawString(x, y, text)
         y -= line_height
 

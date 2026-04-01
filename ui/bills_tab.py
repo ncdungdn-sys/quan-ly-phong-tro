@@ -54,6 +54,9 @@ class BillDetailDialog(QDialog):
         detail_browser.setOpenExternalLinks(False)
 
         bd = self.bill_data
+        # Retrieve settings once to avoid repeated DB calls
+        elec_price = float(db_manager.get_setting('electricity_price', '3500'))
+        water_price = float(db_manager.get_setting('water_price_per_person', '50000'))
         html = f"""
         <style>
             table {{ width: 100%; border-collapse: collapse; }}
@@ -68,12 +71,12 @@ class BillDetailDialog(QDialog):
         <tr><td>🏠 Tiền phòng</td><td></td><td class="amount">{format_currency(bd.get('rent_amount', 0))}</td></tr>
         <tr>
             <td>⚡ Tiền điện</td>
-            <td>{bd.get('old_reading', 0):.0f} → {bd.get('new_reading', 0):.0f} ({bd.get('units_used', 0):.0f} số × {format_currency(float(db_manager.get_setting('electricity_price', '3500')))})</td>
+            <td>{bd.get('old_reading', 0):.0f} → {bd.get('new_reading', 0):.0f} ({bd.get('units_used', 0):.0f} số × {format_currency(elec_price)})</td>
             <td class="amount">{format_currency(bd.get('electricity_amount', 0))}</td>
         </tr>
         <tr>
             <td>💧 Tiền nước</td>
-            <td>{bd.get('num_people', 0)} người × {format_currency(float(db_manager.get_setting('water_price_per_person', '50000')))}</td>
+            <td>{bd.get('num_people', 0)} người × {format_currency(water_price)}</td>
             <td class="amount">{format_currency(bd.get('water_amount', 0))}</td>
         </tr>
         <tr>

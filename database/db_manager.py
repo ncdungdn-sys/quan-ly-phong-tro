@@ -706,9 +706,15 @@ def get_transactions(room_id=None, month=None, year=None):
         query += " AND t.room_id = ?"
         params.append(room_id)
     if month and year:
-        query += " AND strftime('%m', t.transaction_date) = ? AND strftime('%Y', t.transaction_date) = ?"
-        params.append(f"{month:02d}")
-        params.append(str(year))
+        # Use date range comparison for index-friendly filtering
+        start_date = f"{year}-{month:02d}-01"
+        # Compute next month start for upper bound
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+        end_date = f"{next_year}-{next_month:02d}-01"
+        query += " AND t.transaction_date >= ? AND t.transaction_date < ?"
+        params.append(start_date)
+        params.append(end_date)
     query += " ORDER BY t.transaction_date DESC"
     cursor.execute(query, params)
     rows = cursor.fetchall()

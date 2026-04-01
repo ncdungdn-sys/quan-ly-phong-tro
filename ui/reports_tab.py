@@ -323,7 +323,9 @@ class ReportsTab(QWidget):
         transactions = db_manager.get_transactions()
         self.trans_table.setRowCount(0)
 
-        for trans in transactions[:100]:  # Giới hạn 100 giao dịch gần nhất
+        # Limit to 100 most recent transactions to keep UI responsive;
+        # all data is still accessible via Excel export
+        for trans in transactions[:100]:
             row = self.trans_table.rowCount()
             self.trans_table.insertRow(row)
 
