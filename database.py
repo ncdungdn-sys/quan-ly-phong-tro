@@ -435,6 +435,19 @@ class Database:
             'profit_percent': profit_percent
         }
     
+    def get_resident_count_by_room(self, room_id):
+        """Đếm số cư dân trong phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM residents WHERE room_id = ?', (room_id,))
+        result = cursor.fetchone()
+        return result[0] if result else 0
+
+    def delete_room(self, room_id):
+        """Xóa phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM rooms WHERE id = ?', (room_id,))
+        self.conn.commit()
+
     # ===== PHÒNG =====
     def get_room_price(self, room_id):
         """Lấy giá phòng"""

@@ -58,6 +58,8 @@ class RoomManagementApp(QMainWindow):
         central_widget.setLayout(main_layout)
         
         self.update_dashboard()
+        self.load_rooms_table()
+        self.load_residents_table()
     
     def create_residents_tab(self):
         widget = QWidget()
@@ -70,8 +72,8 @@ class RoomManagementApp(QMainWindow):
         
         # Bảng cư dân
         self.residents_table = QTableWidget()
-        self.residents_table.setColumnCount(7)
-        self.residents_table.setHorizontalHeaderLabels(["ID", "Tên", "Tuổi", "CCCD", "SĐT", "Phòng", "Ngày Vào"])
+        self.residents_table.setColumnCount(8)
+        self.residents_table.setHorizontalHeaderLabels(["ID", "Tên", "Tuổi", "CCCD", "SĐT", "Phòng", "Ngày Vào", "Hành Động"])
         layout.addWidget(self.residents_table)
         
         widget.setLayout(layout)
@@ -88,8 +90,8 @@ class RoomManagementApp(QMainWindow):
         
         # Bảng phòng
         self.rooms_table = QTableWidget()
-        self.rooms_table.setColumnCount(4)
-        self.rooms_table.setHorizontalHeaderLabels(["Phòng", "Giá", "Trạng Thái", "Cư Dân"])
+        self.rooms_table.setColumnCount(5)
+        self.rooms_table.setHorizontalHeaderLabels(["Phòng", "Giá", "Trạng Thái", "Cư Dân", "Hành Động"])
         layout.addWidget(self.rooms_table)
         
         widget.setLayout(layout)
@@ -237,6 +239,8 @@ class RoomManagementApp(QMainWindow):
             self.db.add_resident(name, age, cccd, phone, room_id, date.toString("yyyy-MM-dd"))
             QMessageBox.information(self, "Thành công", "Cư dân đã được thêm!")
             self.update_dashboard()
+            self.load_rooms_table()
+            self.load_residents_table()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", str(e))
     
@@ -266,6 +270,7 @@ class RoomManagementApp(QMainWindow):
             self.db.add_room(name, price)
             QMessageBox.information(self, "Thành công", "Phòng đã được thêm!")
             self.update_dashboard()
+            self.load_rooms_table()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", str(e))
     
@@ -311,6 +316,62 @@ class RoomManagementApp(QMainWindow):
     def export_report(self):
         QMessageBox.information(self, "Xuất", "Báo cáo đang được xuất...")
     
+    def load_rooms_table(self):
+        rooms = self.db.get_all_rooms()
+        self.rooms_table.setRowCount(len(rooms))
+        for row, room in enumerate(rooms):
+            resident_count = self.db.get_resident_count_by_room(room['id'])
+            status = "Có người" if room['status'] == 'occupied' else "Trống"
+
+            self.rooms_table.setItem(row, 0, QTableWidgetItem(room['name']))
+            self.rooms_table.setItem(row, 1, QTableWidgetItem(f"{room['price']:,.0f}"))
+            self.rooms_table.setItem(row, 2, QTableWidgetItem(status))
+            self.rooms_table.setItem(row, 3, QTableWidgetItem(str(resident_count)))
+
+            delete_btn = QPushButton("🗑 Xóa")
+            delete_btn.clicked.connect(lambda checked, r_id=room['id']: self.delete_room(r_id))
+            self.rooms_table.setCellWidget(row, 4, delete_btn)
+
+    def load_residents_table(self):
+        residents = self.db.get_all_residents()
+        self.residents_table.setRowCount(len(residents))
+        for row, resident in enumerate(residents):
+            self.residents_table.setItem(row, 0, QTableWidgetItem(str(resident['id'])))
+            self.residents_table.setItem(row, 1, QTableWidgetItem(resident['name']))
+            self.residents_table.setItem(row, 2, QTableWidgetItem(str(resident['age'])))
+            self.residents_table.setItem(row, 3, QTableWidgetItem(resident['cccd'] or ''))
+            self.residents_table.setItem(row, 4, QTableWidgetItem(resident['phone'] or ''))
+            self.residents_table.setItem(row, 5, QTableWidgetItem(resident['room_name'] or ''))
+            self.residents_table.setItem(row, 6, QTableWidgetItem(resident['check_in_date'] or ''))
+
+            delete_btn = QPushButton("🗑 Xóa")
+            delete_btn.clicked.connect(lambda checked, r_id=resident['id']: self.delete_resident(r_id))
+            self.residents_table.setCellWidget(row, 7, delete_btn)
+
+    def delete_room(self, room_id):
+        reply = QMessageBox.question(self, "Xác nhận", "Bạn có chắc muốn xóa phòng này?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                self.db.delete_room(room_id)
+                self.update_dashboard()
+                self.load_rooms_table()
+                self.load_residents_table()
+            except Exception as e:
+                QMessageBox.critical(self, "Lỗi", str(e))
+
+    def delete_resident(self, resident_id):
+        reply = QMessageBox.question(self, "Xác nhận", "Bạn có chắc muốn xóa cư dân này?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                self.db.delete_resident(resident_id)
+                self.update_dashboard()
+                self.load_rooms_table()
+                self.load_residents_table()
+            except Exception as e:
+                QMessageBox.critical(self, "Lỗi", str(e))
+
     def update_dashboard(self):
         stats = self.db.get_statistics()
         self.total_rooms_label.setText(f"Tổng phòng: {stats['total_rooms']}")
