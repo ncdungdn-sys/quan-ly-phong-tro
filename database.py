@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 import os
 
 class Database:
@@ -35,6 +35,7 @@ class Database:
                 phone TEXT,
                 room_id INTEGER NOT NULL,
                 check_in_date DATE NOT NULL,
+                dat_coc REAL DEFAULT 0,
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (room_id) REFERENCES rooms(id)
@@ -113,7 +114,17 @@ class Database:
         ''')
         
         self.conn.commit()
+        self._run_migrations()
         self.init_default_settings()
+    
+    def _run_migrations(self):
+        """Thêm cột mới vào bảng cũ nếu chưa có"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('ALTER TABLE residents ADD COLUMN dat_coc REAL DEFAULT 0')
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Cột đã tồn tại
     
     def init_default_settings(self):
         """Khởi tạo các cài đặt mặc định"""
@@ -166,13 +177,13 @@ class Database:
         self.conn.commit()
     
     # ===== CƯ DÂN (RESIDENTS) =====
-    def add_resident(self, name, age, cccd, phone, room_id, check_in_date):
+    def add_resident(self, name, age, cccd, phone, room_id, check_in_date, dat_coc=0):
         """Thêm cư dân mới"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT INTO residents (name, age, cccd, phone, room_id, check_in_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (name, age, cccd, phone, room_id, check_in_date))
+            INSERT INTO residents (name, age, cccd, phone, room_id, check_in_date, dat_coc)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (name, age, cccd, phone, room_id, check_in_date, dat_coc))
         
         # Cập nhật trạng thái phòng
         self.update_room_status(room_id, 'occupied')
@@ -442,6 +453,87 @@ class Database:
         cursor.execute('SELECT price FROM rooms WHERE id = ?', (room_id,))
         result = cursor.fetchone()
         return result[0] if result else 0
+    
+    def get_all_rooms_with_residents(self):
+        """Lấy tất cả phòng kèm tên cư dân"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT rm.*, r.name as resident_name
+            FROM rooms rm
+            LEFT JOIN residents r ON rm.id = r.room_id
+            ORDER BY rm.name
+        ''')
+        return cursor.fetchall()
+    
+    def get_resident_by_room(self, room_id):
+        """Lấy cư dân đang ở trong phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT r.*, rm.name as room_name, rm.price as room_price
+            FROM residents r
+            LEFT JOIN rooms rm ON r.room_id = rm.id
+            WHERE r.room_id = ?
+        ''', (room_id,))
+        return cursor.fetchone()
+    
+    def get_occupied_rooms_with_residents(self):
+        """Lấy danh sách phòng đang có người ở kèm thông tin cư dân"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT rm.id as room_id, rm.name as room_name, rm.price,
+                   r.id as resident_id, r.name as resident_name,
+                   r.check_in_date, r.dat_coc
+            FROM rooms rm
+            JOIN residents r ON rm.id = r.room_id
+            WHERE rm.status = 'occupied'
+            ORDER BY rm.name
+        ''')
+        return cursor.fetchall()
+    
+    @staticmethod
+    def _to_date(value):
+        """Chuyển đổi giá trị thành date object"""
+        if isinstance(value, str):
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        if isinstance(value, datetime):
+            return value.date()
+        return value
+    
+    def calculate_room_fee_by_days(self, room_id, check_in_date, billing_date):
+        """Tính tiền phòng theo số ngày: (giá/30) × số ngày ở"""
+        check_in = self._to_date(check_in_date)
+        billing = self._to_date(billing_date)
+        days = max(0, (billing - check_in).days)
+        room_price = self.get_room_price(room_id)
+        return round((room_price / 30) * days, 0)
+    
+    # ===== HÓA ĐƠN - LƯU & LẤY =====
+    def save_bill(self, room_id, resident_id, billing_date, room_fee,
+                  electricity_fee, water_fee, laundry_fee, other_fees):
+        """Lưu hóa đơn vào database"""
+        total = room_fee + electricity_fee + water_fee + laundry_fee + other_fees
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO monthly_bills
+            (room_id, resident_id, month, room_fee, electricity_fee, water_fee,
+             laundry_fee, other_fees, total_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (room_id, resident_id, billing_date, room_fee, electricity_fee,
+              water_fee, laundry_fee, other_fees, total))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_all_bills(self):
+        """Lấy tất cả hóa đơn kèm tên phòng và cư dân"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT mb.*, rm.name as room_name, r.name as resident_name
+            FROM monthly_bills mb
+            JOIN rooms rm ON mb.room_id = rm.id
+            JOIN residents r ON mb.resident_id = r.id
+            ORDER BY mb.created_at DESC
+        ''')
+        return cursor.fetchall()
     
     def close(self):
         """Đóng kết nối"""
