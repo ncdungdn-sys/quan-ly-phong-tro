@@ -1,449 +1,389 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 
+
 class Database:
-    def __init__(self, db_name="room_management.db"):
+    def __init__(self, db_name="phong_tro.db"):
         self.db_name = db_name
         self.conn = None
         self.init_database()
-    
+
     def init_database(self):
         """Khởi tạo database và các bảng"""
         self.conn = sqlite3.connect(self.db_name)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
         cursor = self.conn.cursor()
-        
-        # Bảng Rooms (Phòng)
+
+        # Bảng Phòng (Rooms)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS rooms (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                price REAL NOT NULL,
+                name TEXT NOT NULL UNIQUE,
+                price REAL NOT NULL DEFAULT 0,
+                start_date TEXT,
+                deposit REAL DEFAULT 0,
+                billing_day INTEGER DEFAULT 1,
                 status TEXT DEFAULT 'empty',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Bảng Residents (Cư dân)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS residents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                age INTEGER,
-                cccd TEXT UNIQUE,
-                phone TEXT,
-                room_id INTEGER NOT NULL,
-                check_in_date DATE NOT NULL,
                 notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms(id)
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
-        # Bảng ElectricityMeter (Mốc điện)
+
+        # Bảng Khách Trọ (Tenants)
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS electricity_meter (
+            CREATE TABLE IF NOT EXISTS tenants (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id INTEGER NOT NULL,
-                month DATE NOT NULL,
-                reading REAL NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms(id)
+                name TEXT NOT NULL,
+                cccd TEXT,
+                dob TEXT,
+                hometown TEXT,
+                phone TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
             )
         ''')
-        
-        # Bảng Laundry (Giặt)
+
+        # Bảng Số Điện (Electricity readings)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS electricity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id INTEGER NOT NULL,
+                month TEXT NOT NULL,
+                old_reading REAL DEFAULT 0,
+                new_reading REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                UNIQUE(room_id, month)
+            )
+        ''')
+
+        # Bảng Số Nước (Water readings)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS water (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id INTEGER NOT NULL,
+                month TEXT NOT NULL,
+                old_reading REAL DEFAULT 0,
+                new_reading REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                UNIQUE(room_id, month)
+            )
+        ''')
+
+        # Bảng Giặt (Laundry)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS laundry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id INTEGER NOT NULL,
-                month DATE NOT NULL,
-                num_people INTEGER NOT NULL,
-                amount REAL NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms(id)
+                month TEXT NOT NULL,
+                times INTEGER DEFAULT 0,
+                amount REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                UNIQUE(room_id, month)
             )
         ''')
-        
-        # Bảng Expenses (Chi phí)
+
+        # Bảng Chi Phí Khác (Other expenses)
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                description TEXT,
-                amount REAL NOT NULL,
-                room_id INTEGER,
-                date DATE NOT NULL,
-                paid_by_resident BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms(id)
-            )
-        ''')
-        
-        # Bảng MonthlyBills (Hóa đơn hàng tháng)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS monthly_bills (
+            CREATE TABLE IF NOT EXISTS other_expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id INTEGER NOT NULL,
-                resident_id INTEGER NOT NULL,
-                month DATE NOT NULL,
-                room_fee REAL,
-                electricity_fee REAL,
-                water_fee REAL,
-                laundry_fee REAL,
-                other_fees REAL,
-                total_amount REAL,
-                paid BOOLEAN DEFAULT 0,
-                payment_date DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms(id),
-                FOREIGN KEY (resident_id) REFERENCES residents(id)
+                month TEXT NOT NULL,
+                amount REAL DEFAULT 0,
+                note TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                UNIQUE(room_id, month)
             )
         ''')
-        
-        # Bảng Settings (Cài đặt giá)
+
+        # Bảng Cài Đặt (Settings)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key TEXT UNIQUE NOT NULL,
-                value REAL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )
         ''')
-        
+
         self.conn.commit()
-        self.init_default_settings()
-    
-    def init_default_settings(self):
-        """Khởi tạo các cài đặt mặc định"""
-        cursor = self.conn.cursor()
-        
-        settings = {
-            'electricity_price': 3500,      # 3,500đ/1 số điện
-            'water_price': 50000,           # 50,000đ/1 người/tháng
-            'laundry_1person': 30000,       # 30,000đ
-            'laundry_2person': 40000,       # 40,000đ
-            'laundry_3person': 50000,       # 50,000đ
-            'laundry_4plus': 60000,         # 60,000đ
-            'trash_fee': 0,                 # Tiền rác
-            'internet_fee': 0,              # Tiền internet
+        self._init_default_settings()
+
+    def _init_default_settings(self):
+        """Khởi tạo cài đặt mặc định"""
+        defaults = {
+            'electricity_price': '3500',
+            'water_price': '15000',
+            'laundry_price': '20000',
         }
-        
-        for key, value in settings.items():
-            try:
-                cursor.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, value))
-            except sqlite3.IntegrityError:
-                pass  # Đã tồn tại
-        
-        self.conn.commit()
-    
-    # ===== PHÒNG (ROOMS) =====
-    def add_room(self, name, price):
-        """Thêm phòng mới"""
         cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO rooms (name, price, status) VALUES (?, ?, ?)',
-                      (name, price, 'empty'))
+        for key, value in defaults.items():
+            cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (key, value))
+        self.conn.commit()
+
+    # ===== PHÒNG (ROOMS) =====
+    def add_room(self, name, price, start_date, deposit, billing_day, notes=''):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO rooms (name, price, start_date, deposit, billing_day, status, notes)
+            VALUES (?, ?, ?, ?, ?, 'empty', ?)
+        ''', (name, price, start_date, deposit, billing_day, notes))
         self.conn.commit()
         return cursor.lastrowid
-    
+
+    def update_room(self, room_id, name, price, start_date, deposit, billing_day, notes=''):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE rooms SET name=?, price=?, start_date=?, deposit=?, billing_day=?, notes=?
+            WHERE id=?
+        ''', (name, price, start_date, deposit, billing_day, notes, room_id))
+        self.conn.commit()
+
+    def delete_room(self, room_id):
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM rooms WHERE id=?', (room_id,))
+        self.conn.commit()
+
     def get_all_rooms(self):
-        """Lấy tất cả phòng"""
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM rooms ORDER BY name')
         return cursor.fetchall()
-    
-    def get_empty_rooms(self):
-        """Lấy các phòng trống"""
+
+    def get_room(self, room_id):
         cursor = self.conn.cursor()
-        cursor.execute('SELECT id, name FROM rooms WHERE status = "empty" ORDER BY name')
-        return cursor.fetchall()
-    
-    def update_room_status(self, room_id, status):
-        """Cập nhật trạng thái phòng"""
+        cursor.execute('SELECT * FROM rooms WHERE id=?', (room_id,))
+        return cursor.fetchone()
+
+    def update_room_status(self, room_id):
+        """Cập nhật trạng thái phòng dựa vào số khách trọ"""
         cursor = self.conn.cursor()
-        cursor.execute('UPDATE rooms SET status = ? WHERE id = ?', (status, room_id))
+        cursor.execute('SELECT COUNT(*) FROM tenants WHERE room_id=?', (room_id,))
+        count = cursor.fetchone()[0]
+        status = 'occupied' if count > 0 else 'empty'
+        cursor.execute('UPDATE rooms SET status=? WHERE id=?', (status, room_id))
         self.conn.commit()
-    
-    # ===== CƯ DÂN (RESIDENTS) =====
-    def add_resident(self, name, age, cccd, phone, room_id, check_in_date):
-        """Thêm cư dân mới"""
+
+    # ===== KHÁCH TRỌ (TENANTS) =====
+    def add_tenant(self, room_id, name, cccd='', dob='', hometown='', phone=''):
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT INTO residents (name, age, cccd, phone, room_id, check_in_date)
+            INSERT INTO tenants (room_id, name, cccd, dob, hometown, phone)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (name, age, cccd, phone, room_id, check_in_date))
-        
-        # Cập nhật trạng thái phòng
-        self.update_room_status(room_id, 'occupied')
+        ''', (room_id, name, cccd or None, dob or None, hometown or None, phone or None))
         self.conn.commit()
+        self.update_room_status(room_id)
         return cursor.lastrowid
-    
-    def get_all_residents(self):
-        """Lấy tất cả cư dân"""
+
+    def update_tenant(self, tenant_id, name, cccd='', dob='', hometown='', phone=''):
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT residents.*, rooms.name as room_name 
-            FROM residents 
-            LEFT JOIN rooms ON residents.room_id = rooms.id
-            ORDER BY residents.name
+            UPDATE tenants SET name=?, cccd=?, dob=?, hometown=?, phone=?
+            WHERE id=?
+        ''', (name, cccd or None, dob or None, hometown or None, phone or None, tenant_id))
+        self.conn.commit()
+
+    def delete_tenant(self, tenant_id):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT room_id FROM tenants WHERE id=?', (tenant_id,))
+        row = cursor.fetchone()
+        cursor.execute('DELETE FROM tenants WHERE id=?', (tenant_id,))
+        self.conn.commit()
+        if row:
+            self.update_room_status(row['room_id'])
+
+    def get_tenants_by_room(self, room_id):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM tenants WHERE room_id=? ORDER BY name', (room_id,))
+        return cursor.fetchall()
+
+    def get_tenant(self, tenant_id):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM tenants WHERE id=?', (tenant_id,))
+        return cursor.fetchone()
+
+    def get_all_active_tenants(self):
+        """Lấy tất cả khách trọ đang ở (kèm tên phòng)"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT t.*, r.name as room_name
+            FROM tenants t
+            JOIN rooms r ON t.room_id = r.id
+            WHERE r.status = 'occupied'
+            ORDER BY r.name, t.name
         ''')
         return cursor.fetchall()
-    
-    def get_resident_by_id(self, resident_id):
-        """Lấy thông tin cư dân theo ID"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM residents WHERE id = ?', (resident_id,))
-        return cursor.fetchone()
-    
-    def update_resident(self, resident_id, name, age, phone, notes):
-        """Cập nhật thông tin cư dân"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE residents 
-            SET name = ?, age = ?, phone = ?, notes = ?
-            WHERE id = ?
-        ''', (name, age, phone, notes, resident_id))
-        self.conn.commit()
-    
-    def delete_resident(self, resident_id):
-        """Xóa cư dân"""
-        cursor = self.conn.cursor()
-        resident = self.get_resident_by_id(resident_id)
-        if resident:
-            self.update_room_status(resident['room_id'], 'empty')
-        cursor.execute('DELETE FROM residents WHERE id = ?', (resident_id,))
-        self.conn.commit()
-    
+
     # ===== ĐIỆN (ELECTRICITY) =====
-    def add_electricity_reading(self, room_id, month, reading):
-        """Ghi mốc điện"""
+    def save_electricity(self, room_id, month, old_reading, new_reading):
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT INTO electricity_meter (room_id, month, reading)
-            VALUES (?, ?, ?)
-        ''', (room_id, month, reading))
-        self.conn.commit()
-    
-    def get_electricity_readings(self, room_id):
-        """Lấy mốc điện của phòng"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT * FROM electricity_meter 
-            WHERE room_id = ? 
-            ORDER BY month DESC
-        ''', (room_id,))
-        return cursor.fetchall()
-    
-    def calculate_electricity_fee(self, room_id, month):
-        """Tính tiền điện"""
-        cursor = self.conn.cursor()
-        
-        # Lấy mốc tháng hiện tại và tháng trước
-        current_month = f"{month.year}-{month.month:02d}"
-        prev_month_date = month - timedelta(days=30)
-        prev_month = f"{prev_month_date.year}-{prev_month_date.month:02d}"
-        
-        cursor.execute('''
-            SELECT reading FROM electricity_meter 
-            WHERE room_id = ? AND month LIKE ?
-            ORDER BY month DESC LIMIT 1
-        ''', (room_id, f"{current_month}%"))
-        current = cursor.fetchone()
-        
-        cursor.execute('''
-            SELECT reading FROM electricity_meter 
-            WHERE room_id = ? AND month LIKE ?
-            ORDER BY month DESC LIMIT 1
-        ''', (room_id, f"{prev_month}%"))
-        previous = cursor.fetchone()
-        
-        if current and previous:
-            usage = current[0] - previous[0]
-            electricity_price = self.get_setting('electricity_price')
-            return usage * electricity_price
-        return 0
-    
-    # ===== NƯỚC (WATER) =====
-    def calculate_water_fee(self, room_id, month):
-        """Tính tiền nước dựa vào số người"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*) as num_people FROM residents 
-            WHERE room_id = ?
-        ''', (room_id,))
-        result = cursor.fetchone()
-        num_people = result[0] if result else 0
-        
-        water_price = self.get_setting('water_price')
-        return num_people * water_price
-    
-    # ===== GIẶT (LAUNDRY) =====
-    def add_laundry_record(self, room_id, month, num_people):
-        """Ghi chép giặt"""
-        laundry_fee = self.calculate_laundry_fee(num_people)
-        
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO laundry (room_id, month, num_people, amount)
+            INSERT INTO electricity (room_id, month, old_reading, new_reading)
             VALUES (?, ?, ?, ?)
-        ''', (room_id, month, num_people, laundry_fee))
+            ON CONFLICT(room_id, month) DO UPDATE SET
+                old_reading=excluded.old_reading,
+                new_reading=excluded.new_reading
+        ''', (room_id, month, old_reading, new_reading))
         self.conn.commit()
-    
-    def calculate_laundry_fee(self, num_people):
-        """Tính tiền giặt theo số người"""
-        if num_people == 1:
-            return self.get_setting('laundry_1person')
-        elif num_people == 2:
-            return self.get_setting('laundry_2person')
-        elif num_people == 3:
-            return self.get_setting('laundry_3person')
-        else:
-            return self.get_setting('laundry_4plus')
-    
-    # ===== CHI PHÍ (EXPENSES) =====
-    def add_expense(self, exp_type, description, amount, room_id=None, paid_by_resident=False):
-        """Thêm chi phí"""
+
+    def get_electricity(self, room_id, month):
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO expenses (type, description, amount, room_id, date, paid_by_resident)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (exp_type, description, amount, room_id, datetime.now().date(), paid_by_resident))
-        self.conn.commit()
-    
-    def get_all_expenses(self):
-        """Lấy tất cả chi phí"""
+        cursor.execute('SELECT * FROM electricity WHERE room_id=? AND month=?', (room_id, month))
+        return cursor.fetchone()
+
+    def get_electricity_history(self, room_id):
         cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM expenses ORDER BY date DESC')
+        cursor.execute('SELECT * FROM electricity WHERE room_id=? ORDER BY month DESC', (room_id,))
         return cursor.fetchall()
-    
-    # ===== HÓA ĐƠN (BILLS) =====
-    def create_monthly_bill(self, room_id, resident_id, month):
-        """Tạo hóa đơn tháng"""
-        from datetime import date
-        
-        # Tính các khoản phí
-        room_fee = self.get_room_price(room_id)
-        electricity_fee = self.calculate_electricity_fee(room_id, month)
-        water_fee = self.calculate_water_fee(room_id, month)
-        
-        # Lấy tiền giặt và các khoản khác từ database
+
+    # ===== NƯỚC (WATER) =====
+    def save_water(self, room_id, month, old_reading, new_reading):
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT SUM(amount) FROM laundry 
-            WHERE room_id = ? AND month = ?
-        ''', (room_id, month))
-        laundry_result = cursor.fetchone()
-        laundry_fee = laundry_result[0] if laundry_result[0] else 0
-        
-        # Tính tổng
-        total = room_fee + electricity_fee + water_fee + laundry_fee
-        
-        cursor.execute('''
-            INSERT INTO monthly_bills 
-            (room_id, resident_id, month, room_fee, electricity_fee, water_fee, laundry_fee, total_amount)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (room_id, resident_id, month, room_fee, electricity_fee, water_fee, laundry_fee, total))
+            INSERT INTO water (room_id, month, old_reading, new_reading)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, month) DO UPDATE SET
+                old_reading=excluded.old_reading,
+                new_reading=excluded.new_reading
+        ''', (room_id, month, old_reading, new_reading))
         self.conn.commit()
-    
-    def get_bills_by_month(self, month):
-        """Lấy hóa đơn theo tháng"""
+
+    def get_water(self, room_id, month):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM water WHERE room_id=? AND month=?', (room_id, month))
+        return cursor.fetchone()
+
+    # ===== GIẶT (LAUNDRY) =====
+    def save_laundry(self, room_id, month, times, amount):
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT * FROM monthly_bills 
-            WHERE month = ?
-            ORDER BY room_id
-        ''', (month,))
-        return cursor.fetchall()
-    
-    def mark_bill_as_paid(self, bill_id):
-        """Đánh dấu hóa đơn đã thanh toán"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE monthly_bills 
-            SET paid = 1, payment_date = ?
-            WHERE id = ?
-        ''', (datetime.now().date(), bill_id))
+            INSERT INTO laundry (room_id, month, times, amount)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, month) DO UPDATE SET
+                times=excluded.times,
+                amount=excluded.amount
+        ''', (room_id, month, times, amount))
         self.conn.commit()
-    
+
+    def get_laundry(self, room_id, month):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM laundry WHERE room_id=? AND month=?', (room_id, month))
+        return cursor.fetchone()
+
+    # ===== CHI PHÍ KHÁC (OTHER EXPENSES) =====
+    def save_other_expense(self, room_id, month, amount, note=''):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO other_expenses (room_id, month, amount, note)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, month) DO UPDATE SET
+                amount=excluded.amount,
+                note=excluded.note
+        ''', (room_id, month, amount, note))
+        self.conn.commit()
+
+    def get_other_expense(self, room_id, month):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM other_expenses WHERE room_id=? AND month=?', (room_id, month))
+        return cursor.fetchone()
+
     # ===== CÀI ĐẶT (SETTINGS) =====
-    def get_setting(self, key):
-        """Lấy giá trị cài đặt"""
+    def get_setting(self, key, default=None):
         cursor = self.conn.cursor()
-        cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
-        result = cursor.fetchone()
-        return result[0] if result else None
-    
-    def update_setting(self, key, value):
-        """Cập nhật cài đặt"""
+        cursor.execute('SELECT value FROM settings WHERE key=?', (key,))
+        row = cursor.fetchone()
+        return row['value'] if row else default
+
+    def set_setting(self, key, value):
         cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE key = ?
-        ''', (value, key))
+        cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, str(value)))
         self.conn.commit()
-    
+
     # ===== THỐNG KÊ (STATISTICS) =====
     def get_statistics(self):
-        """Lấy thống kê"""
         cursor = self.conn.cursor()
-        
-        # Tổng phòng
         cursor.execute('SELECT COUNT(*) FROM rooms')
         total_rooms = cursor.fetchone()[0]
-        
-        # Phòng trống
-        cursor.execute('SELECT COUNT(*) FROM rooms WHERE status = "empty"')
+        cursor.execute('SELECT COUNT(*) FROM rooms WHERE status="empty"')
         empty_rooms = cursor.fetchone()[0]
-        
-        # Tổng cư dân
-        cursor.execute('SELECT COUNT(*) FROM residents')
-        total_residents = cursor.fetchone()[0]
-        
+        cursor.execute('SELECT COUNT(*) FROM tenants')
+        total_tenants = cursor.fetchone()[0]
         return {
             'total_rooms': total_rooms,
             'empty_rooms': empty_rooms,
-            'total_residents': total_residents,
-            'occupied_rooms': total_rooms - empty_rooms
+            'total_tenants': total_tenants,
         }
-    
-    def get_profit_report(self, month):
-        """Lấy báo cáo lợi nhuận"""
-        cursor = self.conn.cursor()
-        
-        # Tổng doanh thu
-        cursor.execute('''
-            SELECT SUM(total_amount) FROM monthly_bills 
-            WHERE month = ?
-        ''', (month,))
-        revenue = cursor.fetchone()[0] or 0
-        
-        # Tổng chi phí
-        cursor.execute('''
-            SELECT SUM(amount) FROM expenses 
-            WHERE date LIKE ?
-        ''', (f"{month}%",))
-        expenses = cursor.fetchone()[0] or 0
-        
-        profit = revenue - expenses
-        profit_percent = (profit / revenue * 100) if revenue > 0 else 0
-        
+
+    # ===== TÍNH HÓA ĐƠN (BILLING) =====
+    def get_bill_data(self, room_id, month):
+        """Lấy tất cả dữ liệu để tính hóa đơn"""
+        room = self.get_room(room_id)
+        if not room:
+            return None
+
+        elec = self.get_electricity(room_id, month)
+        water = self.get_water(room_id, month)
+        laundry = self.get_laundry(room_id, month)
+        other = self.get_other_expense(room_id, month)
+
+        elec_price = float(self.get_setting('electricity_price', 3500))
+        water_price = float(self.get_setting('water_price', 15000))
+
+        elec_usage = 0
+        elec_fee = 0
+        if elec:
+            elec_usage = max(0, elec['new_reading'] - elec['old_reading'])
+            elec_fee = elec_usage * elec_price
+
+        water_usage = 0
+        water_fee = 0
+        if water:
+            water_usage = max(0, water['new_reading'] - water['old_reading'])
+            water_fee = water_usage * water_price
+
+        laundry_fee = laundry['amount'] if laundry else 0
+        other_fee = other['amount'] if other else 0
+        other_note = other['note'] if other else ''
+
+        total = room['price'] + elec_fee + water_fee + laundry_fee + other_fee
+
         return {
-            'revenue': revenue,
-            'expenses': expenses,
-            'profit': profit,
-            'profit_percent': profit_percent
+            'room_id': room_id,
+            'room_name': room['name'],
+            'room_fee': room['price'],
+            'elec_old': elec['old_reading'] if elec else 0,
+            'elec_new': elec['new_reading'] if elec else 0,
+            'elec_usage': elec_usage,
+            'elec_price': elec_price,
+            'elec_fee': elec_fee,
+            'water_old': water['old_reading'] if water else 0,
+            'water_new': water['new_reading'] if water else 0,
+            'water_usage': water_usage,
+            'water_price': water_price,
+            'water_fee': water_fee,
+            'laundry_fee': laundry_fee,
+            'other_fee': other_fee,
+            'other_note': other_note,
+            'total': total,
+            'month': month,
         }
-    
-    # ===== PHÒNG =====
-    def get_room_price(self, room_id):
-        """Lấy giá phòng"""
+
+    # ===== THÔNG BÁO HẠN TIỀN (BILLING NOTIFICATIONS) =====
+    def get_rooms_due_today(self):
+        """Lấy các phòng tới hạn đóng tiền hôm nay"""
+        today_day = datetime.now().day
         cursor = self.conn.cursor()
-        cursor.execute('SELECT price FROM rooms WHERE id = ?', (room_id,))
-        result = cursor.fetchone()
-        return result[0] if result else 0
-    
+        cursor.execute('''
+            SELECT * FROM rooms
+            WHERE billing_day = ? AND status = 'occupied'
+            ORDER BY name
+        ''', (today_day,))
+        return cursor.fetchall()
+
     def close(self):
-        """Đóng kết nối"""
+        """Đóng kết nối database"""
         if self.conn:
             self.conn.close()
