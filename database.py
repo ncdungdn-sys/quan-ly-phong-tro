@@ -145,6 +145,12 @@ class Database:
         if 'billing_day' not in rooms_cols:
             cursor.execute('ALTER TABLE rooms ADD COLUMN billing_day INTEGER DEFAULT 1')
 
+        # Migration: thêm cột age vào residents nếu chưa có (cho DB cũ)
+        cursor.execute("PRAGMA table_info(residents)")
+        residents_cols = {row[1] for row in cursor.fetchall()}
+        if 'age' not in residents_cols:
+            cursor.execute('ALTER TABLE residents ADD COLUMN age INTEGER')
+
         # Migration: thêm cột mới cho monthly_bills nếu chưa có
         # Các cột và kiểu dữ liệu được hardcode, không đến từ input người dùng
         _bill_migrations = [
