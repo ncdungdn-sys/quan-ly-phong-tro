@@ -982,7 +982,7 @@ class RoomManagementApp(QMainWindow):
             # Auto-fit column widths
             for col in ws.columns:
                 max_len = max(
-                    (len(str(cell.value)) for cell in col if cell.value), default=10
+                    (len(str(cell.value)) for cell in col if cell.value is not None), default=10
                 )
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
@@ -1005,7 +1005,7 @@ class RoomManagementApp(QMainWindow):
     # ── Notifications ─────────────────────────
 
     def _check_billing_notifications(self):
-        """Kiểm tra ngày tính tiền khi khởi động"""
+        """Kiểm tra và thông báo ngày tính tiền cho các phòng đang có người khi khởi động"""
         today = datetime.now().day
         rooms = self.db.get_all_rooms()
         due = [

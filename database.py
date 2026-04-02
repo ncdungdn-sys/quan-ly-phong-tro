@@ -30,7 +30,8 @@ class Database:
             )
         ''')
 
-        # Bảng Khách Trọ (Residents) — CCCD optional/nullable; multiple NULLs allowed by SQLite UNIQUE
+        # Bảng Khách Trọ (Residents) — CCCD is optional and intentionally not unique-constrained,
+        # so multiple residents without a CCCD can coexist in the same room.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS residents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
