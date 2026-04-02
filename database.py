@@ -21,6 +21,7 @@ class Database:
                 name TEXT NOT NULL,
                 price REAL NOT NULL,
                 status TEXT DEFAULT 'empty',
+                billing_day INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -112,6 +113,39 @@ class Database:
             )
         ''')
         
+        # Bảng RoomLogs (Nhật ký phòng)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS room_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                category TEXT NOT NULL,
+                note TEXT,
+                status TEXT DEFAULT 'Chưa Xử Lý',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id)
+            )
+        ''')
+        
+        # Bảng ReminderLog (Nhắc nhở đã xem)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reminder_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                acknowledged INTEGER DEFAULT 0,
+                UNIQUE(room_id, date),
+                FOREIGN KEY (room_id) REFERENCES rooms(id)
+            )
+        ''')
+        
+        # Thêm cột billing_day nếu chưa có (cho DB cũ)
+        try:
+            cursor.execute('ALTER TABLE rooms ADD COLUMN billing_day INTEGER DEFAULT 1')
+        except sqlite3.OperationalError as e:
+            if 'duplicate column name' not in str(e).lower():
+                raise
+        
         self.conn.commit()
         self.init_default_settings()
     
@@ -139,11 +173,11 @@ class Database:
         self.conn.commit()
     
     # ===== PHÒNG (ROOMS) =====
-    def add_room(self, name, price):
+    def add_room(self, name, price, billing_day=1):
         """Thêm phòng mới"""
         cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO rooms (name, price, status) VALUES (?, ?, ?)',
-                      (name, price, 'empty'))
+        cursor.execute('INSERT INTO rooms (name, price, status, billing_day) VALUES (?, ?, ?, ?)',
+                      (name, price, 'empty', billing_day))
         self.conn.commit()
         return cursor.lastrowid
     
@@ -159,10 +193,28 @@ class Database:
         cursor.execute('SELECT id, name FROM rooms WHERE status = "empty" ORDER BY name')
         return cursor.fetchall()
     
+    def get_room_by_id(self, room_id):
+        """Lấy thông tin phòng theo ID"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM rooms WHERE id = ?', (room_id,))
+        return cursor.fetchone()
+    
     def update_room_status(self, room_id, status):
         """Cập nhật trạng thái phòng"""
         cursor = self.conn.cursor()
         cursor.execute('UPDATE rooms SET status = ? WHERE id = ?', (status, room_id))
+        self.conn.commit()
+    
+    def delete_room(self, room_id):
+        """Xóa phòng và tất cả dữ liệu liên quan"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM residents WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM room_logs WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM reminder_log WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM electricity_meter WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM laundry WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM monthly_bills WHERE room_id = ?', (room_id,))
+        cursor.execute('DELETE FROM rooms WHERE id = ?', (room_id,))
         self.conn.commit()
     
     # ===== CƯ DÂN (RESIDENTS) =====
@@ -442,6 +494,82 @@ class Database:
         cursor.execute('SELECT price FROM rooms WHERE id = ?', (room_id,))
         result = cursor.fetchone()
         return result[0] if result else 0
+    
+    # ===== NHẮC NHỞ (REMINDER LOG) =====
+    def check_reminder_exists(self, room_id, date):
+        """Kiểm tra xem đã nhắc phòng này hôm nay chưa (date dạng YYYY-MM-DD)"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'SELECT id FROM reminder_log WHERE room_id = ? AND date = ?',
+            (room_id, date)
+        )
+        return cursor.fetchone() is not None
+    
+    def create_reminder_log(self, room_id, date):
+        """Tạo log nhắc nhở khi đã hiện thông báo (date dạng YYYY-MM-DD)"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                'INSERT INTO reminder_log (room_id, date, acknowledged) VALUES (?, ?, 1)',
+                (room_id, date)
+            )
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            pass  # Đã tồn tại
+    
+    def clear_old_reminders(self):
+        """Xóa các log nhắc nhở cũ hơn 30 ngày"""
+        cursor = self.conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        cursor.execute('DELETE FROM reminder_log WHERE date < ?', (cutoff,))
+        self.conn.commit()
+    
+    # ===== NHẬT KÝ PHÒNG (ROOM LOGS) =====
+    def add_room_log(self, room_id, date, category, note, status='Chưa Xử Lý'):
+        """Thêm nhật ký phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO room_logs (room_id, date, category, note, status)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (room_id, date, category, note, status))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_room_logs(self, room_id, category=None, status=None, date_from=None, date_to=None):
+        """Lấy nhật ký của phòng với filter tùy chọn"""
+        cursor = self.conn.cursor()
+        query = 'SELECT * FROM room_logs WHERE room_id = ?'
+        params = [room_id]
+        if category and category != 'Tất Cả':
+            query += ' AND category = ?'
+            params.append(category)
+        if status and status != 'Tất Cả':
+            query += ' AND status = ?'
+            params.append(status)
+        if date_from:
+            query += ' AND date >= ?'
+            params.append(date_from)
+        if date_to:
+            query += ' AND date <= ?'
+            params.append(date_to)
+        query += ' ORDER BY date DESC'
+        cursor.execute(query, params)
+        return cursor.fetchall()
+    
+    def update_room_log(self, log_id, date, category, note, status):
+        """Cập nhật nhật ký phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE room_logs SET date = ?, category = ?, note = ?, status = ?
+            WHERE id = ?
+        ''', (date, category, note, status, log_id))
+        self.conn.commit()
+    
+    def delete_room_log(self, log_id):
+        """Xóa nhật ký phòng"""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM room_logs WHERE id = ?', (log_id,))
+        self.conn.commit()
     
     def close(self):
         """Đóng kết nối"""
