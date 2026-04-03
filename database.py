@@ -145,11 +145,13 @@ class Database:
         if 'billing_day' not in rooms_cols:
             cursor.execute('ALTER TABLE rooms ADD COLUMN billing_day INTEGER DEFAULT 1')
 
-        # Migration: thêm cột age vào residents nếu chưa có (cho DB cũ)
+        # Migration: thêm cột age và check_in_date vào residents nếu chưa có (cho DB cũ)
         cursor.execute("PRAGMA table_info(residents)")
         residents_cols = {row[1] for row in cursor.fetchall()}
         if 'age' not in residents_cols:
             cursor.execute('ALTER TABLE residents ADD COLUMN age INTEGER')
+        if 'check_in_date' not in residents_cols:
+            cursor.execute("ALTER TABLE residents ADD COLUMN check_in_date DATE DEFAULT NULL")
 
         # Migration: thêm cột mới cho monthly_bills nếu chưa có
         # Các cột và kiểu dữ liệu được hardcode, không đến từ input người dùng
@@ -260,8 +262,10 @@ class Database:
         """Lấy tất cả cư dân"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT residents.*, rooms.name as room_name 
-            FROM residents 
+            SELECT residents.id, residents.name, residents.age, residents.cccd,
+                   residents.phone, residents.room_id, residents.check_in_date,
+                   rooms.name as room_name
+            FROM residents
             LEFT JOIN rooms ON residents.room_id = rooms.id
             ORDER BY residents.name
         ''')

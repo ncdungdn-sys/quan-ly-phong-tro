@@ -208,13 +208,14 @@ class RoomManagementApp(QMainWindow):
         residents = self.db.get_all_residents()
         self.residents_table.setRowCount(len(residents))
         for row_idx, r in enumerate(residents):
-            self.residents_table.setItem(row_idx, 0, QTableWidgetItem(str(r['id'])))
-            self.residents_table.setItem(row_idx, 1, QTableWidgetItem(r['name'] or ''))
-            self.residents_table.setItem(row_idx, 2, QTableWidgetItem(str(r['age'] or '')))
-            self.residents_table.setItem(row_idx, 3, QTableWidgetItem(r['cccd'] or ''))
-            self.residents_table.setItem(row_idx, 4, QTableWidgetItem(r['phone'] or ''))
-            self.residents_table.setItem(row_idx, 5, QTableWidgetItem(r['room_name'] or ''))
-            self.residents_table.setItem(row_idx, 6, QTableWidgetItem(str(r['check_in_date'] or '')))
+            r = dict(r)
+            self.residents_table.setItem(row_idx, 0, QTableWidgetItem(str(r.get('id', ''))))
+            self.residents_table.setItem(row_idx, 1, QTableWidgetItem(r.get('name') or ''))
+            self.residents_table.setItem(row_idx, 2, QTableWidgetItem(str(r.get('age') or '')))
+            self.residents_table.setItem(row_idx, 3, QTableWidgetItem(r.get('cccd') or ''))
+            self.residents_table.setItem(row_idx, 4, QTableWidgetItem(r.get('phone') or ''))
+            self.residents_table.setItem(row_idx, 5, QTableWidgetItem(r.get('room_name') or ''))
+            self.residents_table.setItem(row_idx, 6, QTableWidgetItem(str(r.get('check_in_date') or '')))
 
     def add_resident_dialog(self):
         self._open_add_resident_dialog()
