@@ -20,6 +20,7 @@ class RoomManagementApp(QMainWindow):
         super().__init__()
         self.db = Database()
         self.selected_room_id = None       # Phòng đang chọn trong tab Phòng
+        self.selected_log_room_id = None   # Phòng đang chọn trong tab Nhật Ký
         self.init_ui()
         self._check_billing_notifications()
 
@@ -50,10 +51,11 @@ class RoomManagementApp(QMainWindow):
         dashboard_layout.addWidget(self.total_residents_label)
         main_layout.addLayout(dashboard_layout)
 
-        # Tabs - 3 tabs: Phòng, Hóa Đơn, Cài Đặt
+        # Tabs - 4 tabs: Phòng, Hóa Đơn, Nhật Ký Phòng, Cài Đặt
         tabs = QTabWidget()
         tabs.addTab(self.create_rooms_tab(), "🏘️ Phòng")
         tabs.addTab(self.create_bills_tab(), "📋 Hóa Đơn")
+        tabs.addTab(self.create_logs_tab(), "📔 Nhật Ký Phòng")
         tabs.addTab(self.create_settings_tab(), "⚙️ Cài Đặt")
 
         main_layout.addWidget(tabs)
@@ -1071,6 +1073,7 @@ class RoomManagementApp(QMainWindow):
         self.total_residents_label.setText(f"Tổng cư dân: {stats['total_residents']}")
         self.refresh_rooms_table()
         self.load_bill_combos()
+        self._refresh_log_rooms_table()
 
     # ===== TAB CÀI ĐẶT =====
     def create_settings_tab(self):

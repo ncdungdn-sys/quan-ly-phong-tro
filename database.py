@@ -153,6 +153,16 @@ class Database:
         if 'check_in_date' not in residents_cols:
             cursor.execute("ALTER TABLE residents ADD COLUMN check_in_date DATE DEFAULT NULL")
 
+        # Migration: thêm cột updated_at vào settings nếu chưa có (cho DB cũ)
+        # SQLite không hỗ trợ DEFAULT CURRENT_TIMESTAMP trong ALTER TABLE,
+        # nên các hàng cũ sẽ có giá trị NULL; giá trị sẽ được cập nhật khi lưu.
+        cursor.execute("PRAGMA table_info(settings)")
+        settings_cols = {row[1] for row in cursor.fetchall()}
+        if 'updated_at' not in settings_cols:
+            cursor.execute(
+                "ALTER TABLE settings ADD COLUMN updated_at TIMESTAMP"
+            )
+
         # Migration: thêm cột mới cho monthly_bills nếu chưa có
         # Các cột và kiểu dữ liệu được hardcode, không đến từ input người dùng
         _bill_migrations = [
