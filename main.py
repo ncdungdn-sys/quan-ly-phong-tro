@@ -1,4 +1,5 @@
 import sys
+import os
 import sqlite3
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
@@ -6,9 +7,11 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QLineEdit, QSpinBox, QDateEdit,
                              QDialog, QFormLayout, QMessageBox, QComboBox,
                              QDoubleSpinBox, QGroupBox, QTextEdit,
-                             QHeaderView, QFrame, QSplitter)
+                             QHeaderView, QFrame, QSplitter, QFileDialog)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QFont
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
+import pandas as pd
 from database import Database
 
 
@@ -17,7 +20,6 @@ class RoomManagementApp(QMainWindow):
         super().__init__()
         self.db = Database()
         self.selected_room_id = None       # Phòng đang chọn trong tab Phòng
-        self.selected_log_room_id = None   # Phòng đang chọn trong tab Nhật Ký
         self.init_ui()
         self._check_billing_notifications()
 
@@ -48,16 +50,11 @@ class RoomManagementApp(QMainWindow):
         dashboard_layout.addWidget(self.total_residents_label)
         main_layout.addLayout(dashboard_layout)
 
-        # Tabs
+        # Tabs - 3 tabs: Phòng, Hóa Đơn, Cài Đặt
         tabs = QTabWidget()
         tabs.addTab(self.create_rooms_tab(), "🏘️ Phòng")
-        tabs.addTab(self.create_residents_tab(), "👥 Cư Dân")
         tabs.addTab(self.create_bills_tab(), "📋 Hóa Đơn")
-        tabs.addTab(self.create_electricity_tab(), "⚡ Điện")
-        tabs.addTab(self.create_laundry_tab(), "👔 Giặt")
-        tabs.addTab(self.create_expenses_tab(), "💰 Chi Phí")
-        tabs.addTab(self.create_logs_tab(), "📔 Nhật Ký")
-        tabs.addTab(self.create_reports_tab(), "📊 Báo Cáo")
+        tabs.addTab(self.create_settings_tab(), "⚙️ Cài Đặt")
 
         main_layout.addWidget(tabs)
         central_widget.setLayout(main_layout)
@@ -102,6 +99,9 @@ class RoomManagementApp(QMainWindow):
         btn_layout.addWidget(add_room_btn)
         btn_layout.addWidget(self.add_resident_btn)
         btn_layout.addWidget(self.delete_room_btn)
+        export_excel_btn = QPushButton("📊 Xuất ĐS Khách Trọ (Excel)")
+        export_excel_btn.clicked.connect(self.export_residents_excel)
+        btn_layout.addWidget(export_excel_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -434,14 +434,26 @@ class RoomManagementApp(QMainWindow):
         self.bill_preview.setFont(mono_font)
         right_layout.addWidget(self.bill_preview)
 
-        pay_button = QPushButton("✅ Thanh Toán")
-        pay_button.setStyleSheet(
+        bill_btns_layout = QHBoxLayout()
+        save_button = QPushButton("💾 Lưu Dữ Liệu")
+        save_button.setStyleSheet(
             "QPushButton { background-color: #28a745; color: white; font-size: 14px; "
             "font-weight: bold; padding: 10px; border-radius: 5px; }"
             "QPushButton:hover { background-color: #218838; }"
         )
-        pay_button.clicked.connect(self.process_payment)
-        right_layout.addWidget(pay_button)
+        save_button.clicked.connect(self.process_payment)
+        bill_btns_layout.addWidget(save_button)
+
+        print_button = QPushButton("🖨️ In Hóa Đơn")
+        print_button.setStyleSheet(
+            "QPushButton { background-color: #007bff; color: white; font-size: 14px; "
+            "font-weight: bold; padding: 10px; border-radius: 5px; }"
+            "QPushButton:hover { background-color: #0056b3; }"
+        )
+        print_button.clicked.connect(self.print_invoice)
+        bill_btns_layout.addWidget(print_button)
+
+        right_layout.addLayout(bill_btns_layout)
 
         right_widget.setLayout(right_layout)
         content_layout.addWidget(right_widget, 1)
@@ -470,7 +482,6 @@ class RoomManagementApp(QMainWindow):
                     break
         self.bill_room_combo.blockSignals(False)
 
-        self._refresh_elec_room_combo()
         self.update_bill_preview()
 
     def update_bill_preview(self):
@@ -497,16 +508,18 @@ class RoomManagementApp(QMainWindow):
             f"→ {kwh:.0f} số × {elec_price:,.0f}đ = {electricity_fee:,.0f}đ"
         )
 
-        # Water (per person × 50,000)
-        water_fee = num_residents * 50000
+        # Water (per person × water_price from settings)
+        water_price = self.db.get_setting('water_price') or 50000
+        water_fee = num_residents * water_price
         self.bill_water_info.setText(
-            f"→ {num_residents} người × 50.000đ = {water_fee:,.0f}đ"
+            f"→ {num_residents} người × {water_price:,.0f}đ = {water_fee:,.0f}đ"
         )
 
-        # Laundry (per person × 20,000)
-        laundry_fee = num_residents * 20000
+        # Laundry (per person × laundry_price from settings)
+        laundry_price = self.db.get_setting('laundry_price') or 20000
+        laundry_fee = num_residents * laundry_price
         self.bill_laundry_info.setText(
-            f"→ {num_residents} người × 20.000đ = {laundry_fee:,.0f}đ"
+            f"→ {num_residents} người × {laundry_price:,.0f}đ = {laundry_fee:,.0f}đ"
         )
 
         # Internet + Trash
@@ -527,8 +540,8 @@ class RoomManagementApp(QMainWindow):
             f"\n"
             f"━━━ CHI TIẾT ━━━\n"
             f"Tiền Phòng:  {room_price:>12,.0f}đ\n"
-            f"Tiền Nước:   {water_fee:>12,.0f}đ ({num_residents} người × 50.000đ)\n"
-            f"Tiền Giặt:   {laundry_fee:>12,.0f}đ ({num_residents} người × 20.000đ)\n"
+            f"Tiền Nước:   {water_fee:>12,.0f}đ ({num_residents} người × {water_price:,.0f}đ)\n"
+            f"Tiền Giặt:   {laundry_fee:>12,.0f}đ ({num_residents} người × {laundry_price:,.0f}đ)\n"
             f"Chi Phí:     {inet_amount:>12,.0f}đ ({inet_notes})\n"
             f"Tiền Điện:   {electricity_fee:>12,.0f}đ ({kwh:.0f} số × {elec_price:,.0f}đ)\n"
             f"\n"
@@ -558,8 +571,10 @@ class RoomManagementApp(QMainWindow):
         kwh = max(0, new_reading - old_reading)
         elec_price = self.db.get_setting('electricity_price') or 3500
         electricity_fee = kwh * elec_price
-        water_fee = num_residents * 50000
-        laundry_fee = num_residents * 20000
+        water_price = self.db.get_setting('water_price') or 50000
+        water_fee = num_residents * water_price
+        laundry_price = self.db.get_setting('laundry_price') or 20000
+        laundry_fee = num_residents * laundry_price
         inet_amount = self.bill_inet_amount.value()
         inet_notes = self.bill_inet_notes.text()
 
@@ -578,8 +593,8 @@ class RoomManagementApp(QMainWindow):
                 num_residents=num_residents,
             )
             QMessageBox.information(
-                self, "✅ Thanh Toán Thành Công",
-                f"Đã thanh toán tháng {month_display}\nPhòng: {room_name}"
+                self, "✅ Lưu Thành Công",
+                f"Đã lưu dữ liệu tháng {month_display}\nPhòng: {room_name}"
             )
             # Reset các trường nhập liệu
             self.bill_elec_old.setValue(0)
@@ -1055,10 +1070,125 @@ class RoomManagementApp(QMainWindow):
         self.empty_rooms_label.setText(f"Phòng trống: {stats['empty_rooms']}")
         self.total_residents_label.setText(f"Tổng cư dân: {stats['total_residents']}")
         self.refresh_rooms_table()
-        self.refresh_residents_table()
         self.load_bill_combos()
-        self._refresh_log_rooms_table()
-        self._refresh_expenses_table()
+
+    # ===== TAB CÀI ĐẶT =====
+    def create_settings_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        prices_group = QGroupBox("💰 Cài Đặt Giá")
+        form = QFormLayout()
+
+        self.settings_elec_price = QDoubleSpinBox()
+        self.settings_elec_price.setMaximum(999999)
+        self.settings_elec_price.setDecimals(0)
+        self.settings_elec_price.setSuffix(" đ/kWh")
+
+        self.settings_water_price = QDoubleSpinBox()
+        self.settings_water_price.setMaximum(9999999)
+        self.settings_water_price.setDecimals(0)
+        self.settings_water_price.setSuffix(" đ/người")
+
+        self.settings_laundry_price = QDoubleSpinBox()
+        self.settings_laundry_price.setMaximum(9999999)
+        self.settings_laundry_price.setDecimals(0)
+        self.settings_laundry_price.setSuffix(" đ/người")
+
+        form.addRow("Giá Điện (mỗi kWh):", self.settings_elec_price)
+        form.addRow("Giá Nước (mỗi người):", self.settings_water_price)
+        form.addRow("Giá Giặt (mỗi người):", self.settings_laundry_price)
+
+        prices_group.setLayout(form)
+        layout.addWidget(prices_group)
+
+        save_btn = QPushButton("💾 Lưu Cài Đặt")
+        save_btn.setStyleSheet(
+            "QPushButton { background-color: #28a745; color: white; font-size: 13px; "
+            "font-weight: bold; padding: 8px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #218838; }"
+        )
+        save_btn.clicked.connect(self.save_settings)
+        layout.addWidget(save_btn)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+
+        self.load_settings_form()
+        return widget
+
+    def load_settings_form(self):
+        """Nạp giá trị cài đặt hiện tại vào form"""
+        elec = self.db.get_setting('electricity_price') or 3500
+        water = self.db.get_setting('water_price') or 50000
+        laundry = self.db.get_setting('laundry_price') or 20000
+        self.settings_elec_price.setValue(elec)
+        self.settings_water_price.setValue(water)
+        self.settings_laundry_price.setValue(laundry)
+
+    def save_settings(self):
+        """Lưu cài đặt giá vào database"""
+        try:
+            self.db.update_setting('electricity_price', self.settings_elec_price.value())
+            self.db.update_setting('water_price', self.settings_water_price.value())
+            self.db.update_setting('laundry_price', self.settings_laundry_price.value())
+            QMessageBox.information(self, "✅ Thành Công", "Đã lưu cài đặt giá!")
+            self.update_bill_preview()
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi", str(e))
+
+    # ===== XUẤT EXCEL =====
+    def export_residents_excel(self):
+        """Xuất danh sách khách trọ ra file Excel"""
+        residents = self.db.get_all_residents()
+        if not residents:
+            QMessageBox.information(self, "Thông Báo", "Không có dữ liệu khách trọ để xuất!")
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Lưu File Excel", "danh_sach_khach_tro.xlsx",
+            "Excel Files (*.xlsx)"
+        )
+        if not save_path:
+            return
+
+        try:
+            rows = []
+            for r in residents:
+                r = dict(r)
+                rows.append({
+                    'Phòng': r.get('room_name') or '',
+                    'Họ và Tên': r.get('name') or '',
+                    'Tuổi': r.get('age') or '',
+                    'CCCD': r.get('cccd') or '',
+                    'Số Điện Thoại': r.get('phone') or '',
+                    'Ngày Vào': r.get('check_in_date') or '',
+                })
+            df = pd.DataFrame(rows)
+            df.to_excel(save_path, index=False)
+            QMessageBox.information(
+                self, "✅ Xuất Thành Công",
+                f"Đã xuất danh sách khách trọ:\n{save_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi Xuất Excel", str(e))
+
+    # ===== IN HÓA ĐƠN =====
+    def print_invoice(self):
+        """In hóa đơn ra máy in hệ thống"""
+        content = self.bill_preview.toPlainText()
+        if not content.strip():
+            QMessageBox.warning(self, "Chưa Có Hóa Đơn", "Vui lòng chọn phòng để xem hóa đơn trước!")
+            return
+
+        try:
+            printer = QPrinter(QPrinter.HighResolution)
+            dialog = QPrintDialog(printer, self)
+            if dialog.exec_() == QPrintDialog.Accepted:
+                doc = self.bill_preview.document()
+                doc.print_(printer)
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi In", f"Không thể in hóa đơn:\n{str(e)}")
 
 
 def main():
