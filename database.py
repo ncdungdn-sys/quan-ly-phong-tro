@@ -173,6 +173,7 @@ class Database:
         settings = {
             'electricity_price': 3500,      # 3,500đ/1 số điện
             'water_price': 50000,           # 50,000đ/1 người/tháng
+            'laundry_price': 20000,         # 20,000đ/1 người/tháng
             'laundry_1person': 30000,       # 30,000đ
             'laundry_2person': 40000,       # 40,000đ
             'laundry_3person': 50000,       # 50,000đ
